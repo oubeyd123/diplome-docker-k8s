@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: diplomes
+  labels: { app: api }
+spec:
+  replicas: 2                # change with: kubectl scale deployment api --replicas=5 -n diplomes
+  selector:
+    matchLabels: { app: api }
+  template:
+    metadata:
+      labels: { app: api }
+    spec:
+      containers:
+        - name: api
+          image: diplome-api:1.0
+          imagePullPolicy: IfNotPresent   # image is built inside Minikube (see scripts/deploy.sh)
+          ports:
+            - containerPort: 4000
+          env:
+            # MONGO_USER / MONGO_PASSWORD must be declared before MONGO_URI to be used in it.
+            - name: MONGO_USER
+              valueFrom: { secretKeyRef: { name: diplomes-secret, key: mongo-user } }
+            - name: MONGO_PASSWORD
+              valueFrom: { secretKeyRef: { name: diplomes-secret, key: mongo-password } }
+            - name: MONGO_URI
+              value: mongodb://$(MONGO_USER):$(MONGO_PASSWORD)@mongo:27017/diplomes?authSource=admin
+            - name: JWT_SECRET
+              valueFrom: { secretKeyRef: { name: diplomes-secret, key: jwt-secret } }
+            - name: ADMIN_EMAIL
+              valueFrom: { secretKeyRef: { name: diplomes-secret, key: admin-email } }
+            - name: ADMIN_PASSWORD
+              valueFrom: { secretKeyRef: { name: diplomes-secret, key: admin-password } }
+          # Ready = connected to MongoDB. Not ready pods receive no traffic.
+          readinessProbe:
+            httpGet: { path: /api/health, port: 4000 }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          # Restarted by Kubernetes if it stops answering.
+          livenessProbe:
+            httpGet: { path: /api/health, port: 4000 }
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 4
+          resources:
+            requests: { cpu: 50m, memory: 96Mi }
+            limits: { cpu: 500m, memory: 256Mi }
+---
+# One stable address "api:4000" in front of all API pods: load balancing happens here.
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: diplomes
+spec:
+  type: ClusterIP
+  selector: { app: api }
+  ports:
+    - port: 4000
+      targetPort: 4000

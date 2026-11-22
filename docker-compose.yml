@@ -1,0 +1,48 @@
+# Lance toute l'application : docker compose up --build
+# Site : http://localhost:8080
+services:
+  frontend:
+    build: ./frontend
+    ports:
+      - "8080:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [web]
+
+  api:
+    build: ./api
+    environment:
+      MONGO_URI: mongodb://${MONGO_USER:-root}:${MONGO_PASSWORD:-example}@mongo:27017/diplomes?authSource=admin
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-real-life}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@univ.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin1234}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [web, data]   # no published port: only nginx reaches it
+
+  mongo:
+    image: mongo:7
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-root}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-example}
+    volumes:
+      - mongo-data:/data/db   # data survives `docker compose down`
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+    restart: unless-stopped
+    networks: [data]        # not reachable from the frontend
+
+volumes:
+  mongo-data:
+
+networks:
+  web:
+  data:

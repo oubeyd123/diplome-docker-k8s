@@ -1,0 +1,67 @@
+# Storage request: Minikube's default StorageClass ("standard") creates the volume automatically.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mongo-data
+  namespace: diplomes
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongo
+  namespace: diplomes
+  labels: { app: mongo }
+spec:
+  replicas: 1                # a single database instance (it is not a replica set)
+  strategy:
+    type: Recreate           # the volume is ReadWriteOnce: stop the old pod before starting the new one
+  selector:
+    matchLabels: { app: mongo }
+  template:
+    metadata:
+      labels: { app: mongo }
+    spec:
+      containers:
+        - name: mongo
+          image: mongo:7
+          ports:
+            - containerPort: 27017
+          env:
+            - name: MONGO_INITDB_ROOT_USERNAME
+              valueFrom: { secretKeyRef: { name: diplomes-secret, key: mongo-user } }
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              valueFrom: { secretKeyRef: { name: diplomes-secret, key: mongo-password } }
+          volumeMounts:
+            - name: data
+              mountPath: /data/db
+          readinessProbe:
+            exec:
+              command: ["mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 512Mi }
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: mongo-data
+---
+# Stable internal address "mongo:27017", reachable only inside the cluster (ClusterIP).
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo
+  namespace: diplomes
+spec:
+  type: ClusterIP
+  selector: { app: mongo }
+  ports:
+    - port: 27017
+      targetPort: 27017
