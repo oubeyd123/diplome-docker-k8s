@@ -113,9 +113,8 @@ Le navigateur appelle toujours des URL **relatives** (`/api/...`) via `fetch` (t
 │   ├── 00-namespace.yaml
 │   ├── 01-secret.yaml
 │   ├── 10-mongo.yaml        PVC + Deployment + Service
-│   ├── 20-api.yaml          Deployment (2 réplicas) + Service
+│   ├── 20-api.yaml          Deployment + Service + HPA (2 à 6 réplicas automatiques)
 │   ├── 30-frontend.yaml     Deployment + Service NodePort
-│   └── extras/hpa.yaml      (optionnel) mise à l'échelle automatique
 ├── deploy.bat               déploiement automatisé sous Windows
 ├── scripts/deploy.sh        même chose sous Bash
 ├── scripts/demo.sh          scénario de démonstration (Bash)
@@ -235,9 +234,8 @@ En production (EKS), on pousserait les images dans un registre (ECR) et les mani
 | `00-namespace.yaml` | Namespace `diplomes` | regroupe et isole les ressources du projet |
 | `01-secret.yaml` | Secret `diplomes-secret` | identifiants MongoDB, secret JWT, compte admin |
 | `10-mongo.yaml` | PVC `mongo-data` (1 Gi), Deployment `mongo`, Service `mongo` | 1 réplique, stratégie `Recreate`, volume monté sur `/data/db`, sonde de disponibilité `mongosh` |
-| `20-api.yaml` | Deployment `api` (**2 réplicas**), Service `api` | sondes *readiness* et *liveness* sur `/api/health`, requêtes/limites CPU et mémoire |
-| `30-frontend.yaml` | Deployment `frontend`, Service `frontend` (NodePort 30080) | seul composant joignable depuis l'extérieur |
-| `extras/hpa.yaml` | HorizontalPodAutoscaler | optionnel : 2 à 6 réplicas selon la charge CPU |
+| `20-api.yaml` | Deployment `api`, Service `api`, HPA `api` (**2 à 6 réplicas** selon le CPU) | sondes *readiness* et *liveness* sur `/api/health`, requêtes/limites CPU et mémoire |
+| `30-frontend.yaml` | Deployment `frontend`, Service `frontend` (NodePort 30080) | **2 réplicas**, sondes *readiness* et *liveness*, limites CPU et mémoire ; seul composant joignable depuis l'extérieur |
 
 **Correspondance Docker Compose → Kubernetes :**
 
@@ -256,12 +254,14 @@ Toutes les commandes s'exécutent après le déploiement.
 
 ### 7.1 Redimensionner le nombre de réplicas
 
+Le nombre de pods de l'API est géré par le HPA de `k8s/20-api.yaml` (minimum 2, maximum 6). Pour changer ces bornes :
+
 ```powershell
-kubectl -n diplomes scale deployment api --replicas=5
+kubectl -n diplomes patch hpa api -p '{\"spec\":{\"minReplicas\":5}}'
 kubectl -n diplomes get pods -l app=api
 ```
 
-Kubernetes compare l'état souhaité (5) à l'état réel (2) et crée 3 pods supplémentaires. Retour à 2 : `--replicas=2`.
+Kubernetes compare l'état souhaité (5) à l'état réel (2) et crée 3 pods supplémentaires. Retour à 2 : `minReplicas` = 2 (ou `kubectl apply -f k8s/`). Un `kubectl scale` manuel serait annulé par le HPA.
 
 L'API étant **sans état** (les sessions sont des jetons JWT vérifiés par signature, toutes les données sont dans MongoDB), n'importe quel réplica peut traiter n'importe quelle requête.
 
@@ -296,12 +296,12 @@ Le Deployment constate qu'il manque un pod et en recrée un immédiatement.
 
 Le nouveau pod MongoDB se rattache au même volume (PVC), donc les données survivent.
 
-### 7.5 Mise à l'échelle automatique (optionnel)
+### 7.5 Mise à l'échelle automatique
+
+`deploy.bat` active `metrics-server` (mesure du CPU). Le HPA ajoute des pods quand le CPU moyen dépasse 50 % de la requête (50m) et les retire environ 5 minutes après la fin de la charge.
 
 ```powershell
-minikube addons enable metrics-server
-kubectl apply -f k8s/extras/hpa.yaml
-kubectl -n diplomes get hpa
+kubectl -n diplomes get hpa -w
 ```
 
 Le script `scripts/demo.sh` (Bash) enchaîne les points 7.1 à 7.4 pas à pas.
@@ -366,7 +366,7 @@ Les valeurs fournies (`example`, `admin1234`, secret JWT) sont des **valeurs de 
 - **Réseau** : ajouter des `NetworkPolicy` (nécessite un CNI qui les applique).
 - **Démarrage de nginx** : résolution DNS dynamique de `api` pour tolérer un DNS tardif.
 - **Cloud (AWS EKS)** : pousser les images vers ECR, remplacer le NodePort par un Service `LoadBalancer`, utiliser un StorageClass EBS. Les manifestes restent les mêmes pour l'essentiel.
-- **Mise à l'échelle automatique** : activer le HPA fourni dans `k8s/extras/`.
+- **Mise à l'échelle automatique** : ajuster les seuils du HPA de `k8s/20-api.yaml` (CPU, mémoire, min/max).
 - **CI/CD** : construction et publication automatiques des images.
 
 ## 13. Correspondance avec la grille de notation

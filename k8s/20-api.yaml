@@ -5,7 +5,8 @@ metadata:
   namespace: diplomes
   labels: { app: api }
 spec:
-  replicas: 2                # change with: kubectl scale deployment api --replicas=5 -n diplomes
+  # No "replicas" here: the HorizontalPodAutoscaler at the end of this file decides
+  # how many api pods run (between minReplicas and maxReplicas).
   selector:
     matchLabels: { app: api }
   template:
@@ -59,3 +60,25 @@ spec:
   ports:
     - port: 4000
       targetPort: 4000
+---
+# Automatic scaling of the api pods based on CPU load.
+# Needs the metrics-server addon (deploy.bat enables it) to measure CPU.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api
+  namespace: diplomes
+spec:
+  scaleTargetRef:            # what to scale: the "api" Deployment above
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api
+  minReplicas: 2             # never fewer than 2 pods, even with no traffic
+  maxReplicas: 6             # never more than 6 pods, even under heavy load
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 50   # add pods when average CPU > 50% of the requested 50m

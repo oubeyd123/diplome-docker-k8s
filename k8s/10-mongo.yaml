@@ -17,9 +17,9 @@ metadata:
   namespace: diplomes
   labels: { app: mongo }
 spec:
-  replicas: 1                # a single database instance (it is not a replica set)
+  replicas: 1
   strategy:
-    type: Recreate           # the volume is ReadWriteOnce: stop the old pod before starting the new one
+    type: Recreate
   selector:
     matchLabels: { app: mongo }
   template:

@@ -5,7 +5,7 @@ metadata:
   namespace: diplomes
   labels: { app: frontend }
 spec:
-  replicas: 1
+  replicas: 2                # 2 copies: if one pod dies, the other keeps the site online
   selector:
     matchLabels: { app: frontend }
   template:
@@ -18,12 +18,19 @@ spec:
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
+          # Ready = nginx answers. Not ready pods receive no traffic.
           readinessProbe:
             httpGet: { path: /, port: 8080 }
             periodSeconds: 5
+          # Restarted by Kubernetes if nginx stops answering.
+          livenessProbe:
+            httpGet: { path: /, port: 8080 }
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            failureThreshold: 4
           resources:
             requests: { cpu: 20m, memory: 32Mi }
-            limits: { memory: 128Mi }
+            limits: { cpu: 200m, memory: 128Mi }
 ---
 # NodePort: the only component reachable from outside the cluster.
 # nginx inside this pod forwards /api to the "api" Service.

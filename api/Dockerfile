@@ -1,16 +1,16 @@
-# ---- Stage 1: install production dependencies only ----
-FROM node:20-alpine AS deps
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --omit=dev
-
-# ---- Stage 2: minimal runtime image, non-root ----
+# Start from a small Linux image that already has Node.js 20
 FROM node:20-alpine
 ENV NODE_ENV=production
 WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
+
+# Install the dependencies first (Docker caches this step while package.json doesn't change)
 COPY package*.json ./
+RUN npm ci --omit=dev
+
+# Copy the application code
 COPY src ./src
+
+# Don't run as root
 USER node
 EXPOSE 4000
 HEALTHCHECK --interval=15s --timeout=3s --start-period=20s --retries=3 \
